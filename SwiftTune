@@ -81,17 +81,18 @@ New-Item -Path $Script:LogRoot    -ItemType Directory -Force | Out-Null
 
 # StackPoint IT Color Palette
 $Script:Colors = @{
-    BgPrimary   = [System.Drawing.Color]::FromArgb(24,  25,  27)   # #18191b - outermost bg
-    BgSurface   = [System.Drawing.Color]::FromArgb(63,  67,  71)   # #3f4347 - panels / tabs
-    BgMid       = [System.Drawing.Color]::FromArgb(78,  84,  87)   # #4e5457 - inputs / secondary
-    BluePrimary = [System.Drawing.Color]::FromArgb(0,   98,  154)  # #00629a - primary buttons
-    BlueAccent  = [System.Drawing.Color]::FromArgb(7,   130, 201)  # #0782c9 - hover / highlight
-    TextPrimary = [System.Drawing.Color]::White
-    TextMuted   = [System.Drawing.Color]::FromArgb(160, 170, 180)  # #a0aab4
-    Success     = [System.Drawing.Color]::FromArgb(39,  174, 96)   # #27ae60
-    Danger      = [System.Drawing.Color]::FromArgb(192, 57,  43)   # #c0392b
-    Warning     = [System.Drawing.Color]::Gold
-    OutputBg    = [System.Drawing.Color]::FromArgb(24,  25,  27)   # same as BgPrimary
+    BgPrimary   = [System.Drawing.Color]::FromArgb(242, 244, 247)  # #f2f4f7 - outermost bg
+    BgSurface   = [System.Drawing.Color]::FromArgb(255, 255, 255)  # #ffffff - panels / tabs
+    BgMid       = [System.Drawing.Color]::FromArgb(228, 232, 237)  # #e4e8ed - inputs / secondary
+    BluePrimary = [System.Drawing.Color]::FromArgb(0,   102, 204)  # #0066cc - primary buttons
+    BlueAccent  = [System.Drawing.Color]::FromArgb(26,  143, 227)  # #1a8fe3 - hover / highlight
+    TextPrimary = [System.Drawing.Color]::FromArgb(26,  29,  35)   # #1a1d23 - near-black
+    TextOnBlue  = [System.Drawing.Color]::White                    # text on colored/blue buttons
+    TextMuted   = [System.Drawing.Color]::FromArgb(107, 122, 141)  # #6b7a8d
+    Success     = [System.Drawing.Color]::FromArgb(24,  160, 88)   # #18a058
+    Danger      = [System.Drawing.Color]::FromArgb(208, 58,  46)   # #d03a2e
+    Warning     = [System.Drawing.Color]::FromArgb(230, 144, 10)   # #e6900a
+    OutputBg    = [System.Drawing.Color]::FromArgb(242, 244, 247)  # same as BgPrimary
 }
 
 #------------------------------------------------------------------------------------------------
@@ -126,10 +127,8 @@ function Write-Log {
         if ($OutputBox.InvokeRequired) { [void]$OutputBox.BeginInvoke($uiWork) }
         else { $uiWork.Invoke() }
     } catch {
-        try { Write-Host $Message } catch { }
         return
     }
-    try { Write-Host $Message } catch { }
 }
 
 #------------------------------------------------------------------------------------------------
@@ -1897,7 +1896,7 @@ $btnUninstallSelected.Text      = "Uninstall Selected"
 $btnUninstallSelected.Location  = New-Object System.Drawing.Point -ArgumentList 507, 316
 $btnUninstallSelected.Size      = New-Object System.Drawing.Size -ArgumentList 190, 32
 $btnUninstallSelected.BackColor = $Script:Colors.BluePrimary
-$btnUninstallSelected.ForeColor = $Script:Colors.TextPrimary
+$btnUninstallSelected.ForeColor = $Script:Colors.TextOnBlue
 $btnUninstallSelected.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 $btnUninstallSelected.FlatAppearance.BorderSize = 0
 $btnUninstallSelected.Font      = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
@@ -1940,6 +1939,7 @@ $btnDeselectAll = New-Button "Deselect All"   125 453 100 34 $Script:Colors.BgMi
 $btnRecommended = New-Button "Recommended"    235 453 110 34 $Script:Colors.BgMid
 $btnRefresh     = New-Button "Refresh State"  355 453 110 34 $Script:Colors.BgMid
 $btnApply       = New-Button "Apply Selected" 475 453 225 34 $Script:Colors.BluePrimary
+$btnApply.ForeColor = $Script:Colors.TextOnBlue
 $btnUndoLast    = New-Button "Undo Last Run"  475 493 225 34 $Script:Colors.BgSurface
 $btnExportLog   = New-Button "Export Log"     355 493 110 34 $Script:Colors.BgMid
 $btnCancel      = New-Button "Cancel"         235 493 110 34 $Script:Colors.BgMid
