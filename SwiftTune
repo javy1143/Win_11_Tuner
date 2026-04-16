@@ -1,6 +1,23 @@
 #================================================================================================
 # StackPoint IT - Windows 11 Tuner / Optimization Tool
-# Version: 4.3
+# Version: 4.4
+# Changes from 4.3:
+#   - perf_services_work_25h2: New "Work Environment Service Hardening (25H2)" tweak.
+#     Disables 20 non-essential services (Xbox stack, geolocation, maps, phone/SMS,
+#     mobile hotspot, WMP sharing, ICS, P2P/PNRP stack, Mixed Reality/Perception,
+#     Parental Controls, Wallet) and sets 7 more to Manual (Remote Desktop trio,
+#     Windows Error Reporting, Windows Image Acquisition, MSA Sign-in Assistant,
+#     Program Compatibility Assistant).
+#     Printer (Spooler/PrintNotify), core network fabric (NlaSvc, Dnscache,
+#     LanmanWorkstation, LanmanServer, W32tm, Netlogon), Windows Update,
+#     OneDrive, Teams, RingCentral, WSearch, WpnService, CDPSvc, and OneSyncSvc
+#     are all hard-protected and will never be touched by this tweak.
+#     Remote Desktop is set to Manual (not Disabled) — no persistent RDP listener
+#     at boot, but IT can still connect on demand via Action1 or direct RDP.
+#   - $Script:ServiceSafelist expanded: Spooler, PrintNotify, NlaSvc, Dnscache,
+#     LanmanWorkstation, LanmanServer, W32tm, Netlogon added for belt-and-suspenders
+#     protection in both service tweaks.
+#================================================================================================
 # Changes from 4.2:
 #   - perf_powerplan: Now sets AC=100%/DC=80% max processor on High Performance plan
 #     instead of a flat 100% on both. Prevents battery drain when users unplug.
@@ -67,7 +84,7 @@ $Script:MainRunspace = [System.Management.Automation.Runspaces.Runspace]::Defaul
 # 3) Paths, Constants & Color Palette
 #------------------------------------------------------------------------------------------------
 $Script:AppName    = "StackPoint IT - Windows 11 Tuner"
-$Script:AppVersion = "4.3"
+$Script:AppVersion = "4.4"
 $Script:DataRoot   = Join-Path $env:ProgramData "StackPointTuner"
 $Script:BackupRoot = Join-Path $Script:DataRoot "Backups"
 $Script:LogRoot    = Join-Path $Script:DataRoot "Logs"
@@ -891,8 +908,19 @@ $serviceToggles = @(
 )
 
 $Script:ServiceSafelist = @(
-    "wuauserv","RingCentral","RingCentralMeetings","MozillaMaintenance",
-    "AdobeUpdateService","AdobeARMservice","OneDrive","Teams"
+    # Windows Update
+    "wuauserv","UsoSvc","WaaSMedicSvc",
+    # Communication / Collaboration
+    "RingCentral","RingCentralMeetings",
+    # Third-party updaters
+    "MozillaMaintenance","AdobeUpdateService","AdobeARMservice",
+    # Microsoft Cloud / Collaboration
+    "OneDrive","Teams",
+    # Print stack — never disable in a work environment
+    "Spooler","PrintNotify",
+    # Core network fabric — critical for domain, file shares, DNS, time sync
+    "NlaSvc","Dnscache","LanmanWorkstation","LanmanServer",
+    "W32tm","Netlogon","MRxSmb10","MRxSmb20","MRxSmb"
 )
 
 $Script:Tweaks += New-Tweak `
@@ -922,6 +950,195 @@ $Script:Tweaks += New-Tweak `
         }
     } `
     -Undo { param($ManifestPath,$OutputBox,$StatusLabel) Restore-FromManifest -ManifestPath $ManifestPath -OutputBox $OutputBox -StatusLabel $StatusLabel }
+
+# --- Work Environment Service Hardening (Windows 11 25H2) ---
+# Organized by functional group. All entries skip gracefully if the service is not
+# installed (non-fatal). Printer, network fabric, OneDrive, Teams, RingCentral, and
+# M365 auth services are intentionally excluded from this list.
+# Remote Desktop is set to Manual (not Disabled): no persistent listener at boot,
+# but IT can still connect on demand via Action1 or direct RDP.
+
+$Script:WorkServices25H2 = @(
+    # ── Xbox / Gaming ──────────────────────────────────────────────────────────
+    # No gaming role in a business environment. All four services feed the Xbox
+    # Live ecosystem; disabling them has zero impact on Office, Teams, or RingCentral.
+    @{ Name="XblAuthManager";        Startup="Disabled"; Note="Xbox Live Authentication Manager"         },
+    @{ Name="XblGameSave";           Startup="Disabled"; Note="Xbox Live Game Save"                      },
+    @{ Name="XboxNetApiSvc";         Startup="Disabled"; Note="Xbox Live Networking Service"              },
+    @{ Name="XboxGipSvc";            Startup="Disabled"; Note="Xbox Accessory Management Service"         },
+
+    # ── Location & Maps ────────────────────────────────────────────────────────
+    # Geolocation grants apps (including browser-based) access to physical location.
+    # Disabling closes a privacy vector with no productivity cost in most enterprise
+    # environments. MapsBroker handles offline map downloads — not used in work env.
+    @{ Name="lfsvc";                 Startup="Disabled"; Note="Geolocation Service"                      },
+    @{ Name="MapsBroker";            Startup="Disabled"; Note="Downloaded Maps Manager"                   },
+
+    # ── Phone / Mobile Features ────────────────────────────────────────────────
+    # Powers "Link to Windows Phone" and mobile hotspot. The hotspot service creates
+    # an unauthorized network bridge — a security risk on managed corporate devices.
+    @{ Name="PhoneSvc";              Startup="Disabled"; Note="Phone Service (Link to Windows Phone)"     },
+    @{ Name="icssvc";                Startup="Disabled"; Note="Windows Mobile Hotspot Service"            },
+    @{ Name="SmsRouter";             Startup="Disabled"; Note="Microsoft Windows SMS Router Service"      },
+
+    # ── Windows Insider / Retail Demo ──────────────────────────────────────────
+    # Retail Demo runs a kiosk-mode loop that should never run on a managed machine.
+    # Windows Insider service phones home to Microsoft even when not enrolled.
+    @{ Name="RetailDemo";            Startup="Disabled"; Note="Retail Demo Service"                       },
+    @{ Name="wisvc";                 Startup="Disabled"; Note="Windows Insider Service"                   },
+
+    # ── Windows Media Player Network Sharing ───────────────────────────────────
+    # Streams local media over the network via DLNA. No business use; opens a
+    # persistent media-sharing listener on the NIC.
+    @{ Name="WMPNetworkSvc";         Startup="Disabled"; Note="Windows Media Player Network Sharing"      },
+
+    # ── Internet Connection Sharing ────────────────────────────────────────────
+    # Allows the machine to act as a NAT router. Unauthorized ICS bridges can bypass
+    # corporate firewall and DLP policy entirely.
+    @{ Name="SharedAccess";          Startup="Disabled"; Note="Internet Connection Sharing (ICS)"         },
+
+    # ── Peer-to-Peer Networking Stack ──────────────────────────────────────────
+    # PNRP and Peer Networking enable serverless name resolution and group
+    # communication. Unused in domain/Intune environments; generate periodic broadcast
+    # traffic on the LAN and expose an additional network attack surface.
+    @{ Name="p2pimsvc";              Startup="Disabled"; Note="Peer Name Resolution Protocol"             },
+    @{ Name="p2psvc";                Startup="Disabled"; Note="Peer Networking Grouping"                  },
+    @{ Name="PNRPsvc";               Startup="Disabled"; Note="PNRP (Peer Name Resolution)"               },
+    @{ Name="PNRPAutoReg";           Startup="Disabled"; Note="PNRP Machine Name Publication"             },
+
+    # ── Mixed Reality / Windows Perception (25H2) ──────────────────────────────
+    # Windows 11 25H2 ships these even on non-MR hardware. The Perception Service
+    # polls sensors at intervals even with no headset attached, burning I/O for nothing.
+    @{ Name="spectrum";              Startup="Disabled"; Note="Windows Perception Service (Mixed Reality)" },
+    @{ Name="MixedRealityOpenXRSvc"; Startup="Disabled"; Note="Mixed Reality OpenXR Service"              },
+
+    # ── Parental Controls / Wallet ──────────────────────────────────────────────
+    # Parental Controls have no role on managed corporate endpoints.
+    # WalletService backs Windows payment/pass wallet — not used in M365 environments
+    # and not required by SharePoint, OneDrive, or any standard LOB app.
+    @{ Name="WpcMonSvc";             Startup="Disabled"; Note="Parental Controls"                         },
+    @{ Name="WalletService";         Startup="Disabled"; Note="Windows Wallet Service"                    },
+
+    # ── Remote Desktop — Manual (NOT Disabled) ─────────────────────────────────
+    # Manual = listener is NOT open at boot (no persistent RDP attack surface), but
+    # IT can still RDP in on demand or via Action1 which starts the service before
+    # connecting. Disabling entirely would break all remote-support workflows.
+    @{ Name="TermService";           Startup="Manual";   Note="Remote Desktop Services (on-demand only)"  },
+    @{ Name="UmRdpService";          Startup="Manual";   Note="RDP UserMode Port Redirector"              },
+    @{ Name="SessionEnv";            Startup="Manual";   Note="Remote Desktop Configuration"              },
+
+    # ── Windows Error Reporting — Manual ───────────────────────────────────────
+    # Kept at Manual (not Disabled) so crash dumps still trigger on application faults
+    # — useful for diagnosing Office, RingCentral, or custom app crashes in the field.
+    @{ Name="WerSvc";                Startup="Manual";   Note="Windows Error Reporting Service"           },
+
+    # ── Windows Image Acquisition — Manual ─────────────────────────────────────
+    # Scanner support. Work MFPs use this for scan-to-computer. Manual means it starts
+    # only when a scan is initiated — not burning a thread at every boot.
+    @{ Name="stisvc";                Startup="Manual";   Note="Windows Image Acquisition (MFP Scanner)"   },
+
+    # ── Microsoft Account Sign-in Assistant — Manual ───────────────────────────
+    # M365 modern auth (MSAL) occasionally invokes this during token refresh on
+    # non-Entra-joined machines. Manual prevents it from running continuously while
+    # keeping it available when the auth stack actually needs it.
+    @{ Name="wlidsvc";               Startup="Manual";   Note="Microsoft Account Sign-in Assistant"       },
+
+    # ── Program Compatibility Assistant — Manual ───────────────────────────────
+    # Monitors app installs for compatibility shims. Not needed at startup; Manual lets
+    # it trigger on demand during software deployment without holding a boot slot.
+    @{ Name="PcaSvc";                Startup="Manual";   Note="Program Compatibility Assistant Service"   }
+)
+
+$Script:Tweaks += New-Tweak `
+    -Id "perf_services_work_25h2" `
+    -Name "Work Environment Service Hardening (25H2)" `
+    -Category "Performance" `
+    -Risk "Medium" `
+    -Description "Disables/throttles 27 non-essential services for Windows 11 25H2 work environments. Preserves Office, OneDrive, SharePoint, Teams, RingCentral, printing, scanners, and all core network services. Remote Desktop set to Manual (not Disabled) for IT remote access." `
+    -GetState {
+        # Sample the definitive Disabled entries to determine overall state
+        $checkNames = @("XblAuthManager","XblGameSave","lfsvc","MapsBroker","PhoneSvc","RetailDemo","SharedAccess","WMPNetworkSvc")
+        $total = 0; $matched = 0
+        foreach ($entry in $Script:WorkServices25H2) {
+            if ($checkNames -notcontains $entry.Name) { continue }
+            $info = Get-ServiceStartupInfo -Name $entry.Name
+            if (-not $info.Exists) { continue }
+            $total++
+            if ($info.StartupType -eq $entry.Startup) { $matched++ }
+        }
+        if ($total -eq 0)            { "NotAvailable" }
+        elseif ($matched -eq 0)      { "NotApplied"   }
+        elseif ($matched -eq $total) { "Applied"       }
+        else                         { "Partial"        }
+    } `
+    -Apply {
+        param($BackupCtx, $OutputBox, $StatusLabel)
+        Write-Log -Message "--- Work Environment Service Hardening (25H2) ---" -OutputBox $OutputBox -Color $Script:Colors.Warning -StatusLabel $StatusLabel
+        Write-Log -Message "Protected: Spooler, PrintNotify, NlaSvc, Dnscache, LanmanWorkstation, LanmanServer, W32tm, Netlogon, wuauserv, OneDrive, Teams, RingCentral, WSearch, WpnService, CDPSvc, OneSyncSvc." `
+                  -OutputBox $OutputBox -Color $Script:Colors.TextMuted -StatusLabel $StatusLabel
+
+        # Hard-protect list for this tweak — belt-and-suspenders on top of $Script:ServiceSafelist
+        $hardProtect = @(
+            # Print
+            "Spooler","PrintNotify",
+            # Core network fabric
+            "NlaSvc","Dnscache","LanmanWorkstation","LanmanServer","W32tm","Netlogon",
+            # Windows Update
+            "wuauserv","UsoSvc","WaaSMedicSvc",
+            # Cloud / Collaboration
+            "OneDrive","Teams","RingCentral","RingCentralMeetings",
+            # Third-party updaters
+            "AdobeUpdateService","AdobeARMservice","MozillaMaintenance",
+            # Search (needed for Outlook local search and SharePoint indexing)
+            "WSearch",
+            # Push notifications (Teams alerts, Outlook reminders)
+            "WpnService","WpnUserService",
+            # M365 connected experiences and Outlook calendar/contact sync
+            "CDPSvc","OneSyncSvc"
+        )
+
+        $cntDisabled = 0; $cntManual = 0; $cntNotFound = 0; $cntSkipped = 0
+
+        foreach ($entry in $Script:WorkServices25H2) {
+            # Skip anything covered by either safelist
+            if ($hardProtect -contains $entry.Name -or $Script:ServiceSafelist -contains $entry.Name) {
+                Write-Log -Message "PROTECTED (skipped): $($entry.Name)" -OutputBox $OutputBox -Color $Script:Colors.TextMuted -StatusLabel $StatusLabel
+                $cntSkipped++
+                continue
+            }
+
+            try {
+                $svc = Get-Service -Name $entry.Name -ErrorAction SilentlyContinue
+                if (-not $svc) {
+                    Write-Log -Message "Not installed (skipped): $($entry.Name) — $($entry.Note)" `
+                              -OutputBox $OutputBox -Color $Script:Colors.TextMuted -StatusLabel $StatusLabel
+                    $cntNotFound++
+                    continue
+                }
+
+                # Stop running service if we are disabling it
+                if ($entry.Startup -eq "Disabled" -and $svc.Status -eq "Running") {
+                    try { Stop-Service -Name $entry.Name -Force -ErrorAction SilentlyContinue } catch { }
+                }
+
+                Set-ServiceStartup -BackupCtx $BackupCtx -Name $entry.Name -StartupType $entry.Startup `
+                                   -OutputBox $OutputBox -StatusLabel $StatusLabel
+
+                if ($entry.Startup -eq "Disabled") { $cntDisabled++ } else { $cntManual++ }
+
+            } catch {
+                Write-Log -Message "WARNING: Could not configure $($entry.Name) — $($_.Exception.Message)" `
+                          -OutputBox $OutputBox -Color $Script:Colors.Warning -StatusLabel $StatusLabel
+            }
+        }
+
+        Write-Log -Message ("Hardening complete. Disabled: {0} | Set Manual: {1} | Not installed: {2} | Protected: {3}" `
+                  -f $cntDisabled, $cntManual, $cntNotFound, $cntSkipped) `
+                  -OutputBox $OutputBox -Color $Script:Colors.Success -StatusLabel $StatusLabel
+        Write-Log -Message "NOTE: Remote Desktop services set to Manual — no RDP listener at boot, but IT access on demand is preserved." `
+                  -OutputBox $OutputBox -Color $Script:Colors.BlueAccent -StatusLabel $StatusLabel
+    } `
+    -Undo { param($ManifestPath, $OutputBox, $StatusLabel) Restore-FromManifest -ManifestPath $ManifestPath -OutputBox $OutputBox -StatusLabel $StatusLabel }
 
 $Script:Tweaks += New-Tweak `
     -Id "perf_network" -Name "Network Optimizations" -Category "Performance" -Risk "Low" `
